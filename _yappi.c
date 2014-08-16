@@ -169,55 +169,37 @@ _create_ctx(void)
     return ctx;
 }
 
-char *
-_current_ctx_name(void)
+static char *
+_current_context_name(void)
 {
     char *rc = NULL;
     PyObject *callback_rc = NULL;
-    PyObject *mthr, *cthr, *tattr1, *tattr2;
-    mthr = cthr = tattr1 = tattr2 = NULL;
 
-    if (context_name_callback) {
-        callback_rc = PyObject_CallFunctionObjArgs(context_name_callback, NULL);
-        if (!callback_rc) {
-            PyErr_Print();
-            goto err;
-        }
-        if (!PyStr_Check(callback_rc)) {
-            yerr("context name callback returned non-string");
-            goto err;
-        }
-
-        rc = PyStr_AS_CSTRING(callback_rc);
-        Py_CLEAR(callback_rc);
-
-        return rc;
-    } else {
-        mthr = PyImport_ImportModuleNoBlock("threading"); // Requires Python 2.6.
-        if (!mthr)
-            goto err;
-        cthr = PyObject_CallMethod(mthr, "currentThread", "");
-        if (!cthr)
-            goto err;
-        tattr1 = PyObject_GetAttrString(cthr, "__class__");
-        if (!tattr1)
-            goto err;
-        tattr2 = PyObject_GetAttrString(tattr1, "__name__");
-        if (!tattr2)
-            goto err;
-
-        Py_DECREF(mthr);
-        Py_DECREF(cthr);
-        Py_DECREF(tattr1);
-        Py_DECREF(tattr2);
-        return PyStr_AS_CSTRING(tattr2);
+    callback_rc = PyObject_CallFunctionObjArgs(context_name_callback, NULL);
+    if (!callback_rc) {
+        PyErr_Print();
+        goto err;
     }
+
+    if (callback_rc == Py_None) {
+        // Name not available yet - will try again on the next call
+        goto out;
+    }
+
+    if (!PyStr_Check(callback_rc)) {
+        yerr("context name callback returned non-string");
+        goto err;
+    }
+
+    rc = PyStr_AS_CSTRING(callback_rc);
+
+out:
+    PyErr_Clear();
+    Py_XDECREF(callback_rc);
+    return rc;
+
 err:
     PyErr_Clear();
-    Py_XDECREF(mthr);
-    Py_XDECREF(cthr);
-    Py_XDECREF(tattr1);
-    Py_XDECREF(tattr2);
     Py_XDECREF(callback_rc);
     Py_CLEAR(context_name_callback);  /* Don't use the callback again. */
     return NULL;
@@ -700,9 +682,9 @@ _yapp_callback(PyObject *self, PyFrameObject *frame, int what,
         current_ctx->sched_cnt++;
     }
     prev_ctx = current_ctx;
-    if (!current_ctx->name)
+    if (!current_ctx->name && context_name_callback)
     {
-        current_ctx->name = _current_ctx_name();
+        current_ctx->name = _current_context_name();
     }
 
 

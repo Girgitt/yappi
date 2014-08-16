@@ -10,6 +10,12 @@ import _yappi
 import pickle
 import marshal
 import threading
+
+try:
+    from thread import get_ident        # Python 2
+except ImportError:
+    from threading import get_ident     # Python 3
+
 from collections import defaultdict
 
 class YappiError(Exception): pass
@@ -869,8 +875,29 @@ def set_context_name_callback(callback):
     >>> import greenlet, yappi
     >>> yappi.set_context_name_callback(
     ...     lambda: greenlet.getcurrent().__class__.__name__)
+
+    If the callback cannot return the name at this time but may be able to
+    return it later, it should return None.
+
+    To disable your callback and use the current thread's class name, set the
+    callback to yappi.context_name_callback.
     """
     return _yappi.set_context_name_callback(callback)
+
+def context_name_callback():
+    # We don't use threading.current_thread() becuase it will deadlock if
+    # called when profiling threading._active_limbo_lock.acquire.
+    # See https://code.google.com/p/yappi/issues/detail?id=48
+    try:
+        current_thread = threading._active[get_ident()]
+    except KeyError:
+        # Threads are not registered yet during the first few profile
+        # callbacks. This will cause yappi to try again.
+        return None
+    else:
+        return current_thread.__class__.__name__
+
+_yappi.set_context_name_callback(context_name_callback)
 
 def main():
     from optparse import OptionParser
